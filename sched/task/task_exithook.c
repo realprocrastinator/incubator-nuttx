@@ -33,6 +33,7 @@
 
 #include <nuttx/sched.h>
 #include <nuttx/fs/fs.h>
+#include <nuttx/mm/mm.h>
 
 #include "sched/sched.h"
 #include "group/group.h"
@@ -65,7 +66,7 @@ static inline void nxtask_exitstatus(FAR struct task_group_s *group,
     {
       /* No.. Find the exit status entry for this task in the parent TCB */
 
-      child = group_find_child(group, getpid());
+      child = group_find_child(group, gettid());
       if (child)
         {
           /* Save the exit status..  For the case of HAVE_GROUP_MEMBERS,
@@ -104,7 +105,7 @@ static inline void nxtask_groupexit(FAR struct task_group_s *group)
     {
       /* No.. Find the exit status entry for this task in the parent TCB */
 
-      child = group_find_child(group, getpid());
+      child = group_find_child(group, gettid());
       if (child)
         {
           /* Mark that all members of the child task group has exited */
@@ -378,34 +379,6 @@ static inline void nxtask_exitwakeup(FAR struct tcb_s *tcb, int status)
 #endif
 
 /****************************************************************************
- * Name: nxtask_flushstreams
- *
- * Description:
- *   Flush all streams when the final thread of a group exits.
- *
- ****************************************************************************/
-
-#ifdef CONFIG_FILE_STREAM
-static inline void nxtask_flushstreams(FAR struct tcb_s *tcb)
-{
-  FAR struct task_group_s *group = tcb->group;
-
-  /* Have we already left the group?  Are we the last thread in the group? */
-
-  if (group && group->tg_nmembers == 1)
-    {
-#ifdef CONFIG_MM_KERNEL_HEAP
-      lib_flushall(tcb->group->tg_streamlist);
-#else
-      lib_flushall(&tcb->group->tg_streamlist);
-#endif
-    }
-}
-#else
-#  define nxtask_flushstreams(tcb)
-#endif
-
-/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -430,13 +403,9 @@ static inline void nxtask_flushstreams(FAR struct tcb_s *tcb)
  *   task_delete will have already removed the tcb from the ready-to-run
  *   list to prevent any further action on this task.
  *
- *   nonblocking will be set true only when we are called from
- *   nxtask_terminate() via _exit().  In that case, we must be careful to do
- *   nothing that can cause the cause the thread to block.
- *
  ****************************************************************************/
 
-void nxtask_exithook(FAR struct tcb_s *tcb, int status, bool nonblocking)
+void nxtask_exithook(FAR struct tcb_s *tcb, int status)
 {
   /* Under certain conditions, nxtask_exithook() can be called multiple
    * times.  A bit in the TCB was set the first time this function was
@@ -458,22 +427,6 @@ void nxtask_exithook(FAR struct tcb_s *tcb, int status, bool nonblocking)
   tcb->flags  &= ~TCB_FLAG_CANCEL_PENDING;
   tcb->cpcount = 0;
 #endif
-
-  if (!nonblocking)
-    {
-      /* If this is the last thread in the group, then flush all streams
-       * (File descriptors will be closed when the TCB is deallocated).
-       *
-       * NOTES:
-       * 1. We cannot flush the buffered I/O if nonblocking is requested.
-       *    that might cause this logic to block.
-       * 2. This function will only be called with non-blocking == true
-       *    only when called through _exit(). _exit() behavior does not
-       *    require that the streams be flushed
-       */
-
-      nxtask_flushstreams(tcb);
-    }
 
   /* If the task was terminated by another task, it may be in an unknown
    * state.  Make some feeble effort to recover the state.
@@ -504,6 +457,17 @@ void nxtask_exithook(FAR struct tcb_s *tcb, int status, bool nonblocking)
   /* Deallocate anything left in the TCB's queues */
 
   nxsig_cleanup(tcb); /* Deallocate Signal lists */
+
+#ifdef CONFIG_SCHED_DUMP_LEAK
+  if ((tcb->cmn.flags & TCB_FLAG_TTYPE_MASK) == TCB_FLAG_TTYPE_KERNEL)
+    {
+      kmm_memdump(tcb->pid);
+    }
+  else
+    {
+      umm_memdump(tcb->pid);
+    }
+#endif
 
 #ifdef CONFIG_SMP
   leave_critical_section(flags);

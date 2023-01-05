@@ -62,13 +62,16 @@ if [ "$STATUS" == "on" ]; then
     iptables -A FORWARD -i $IF_HOST -o $IF_BRIDGE -m state --state RELATED,ESTABLISHED -j ACCEPT
     iptables -A FORWARD -i $IF_BRIDGE -o $IF_HOST -j ACCEPT
 
+    # enable forward to make sure nat works
+    sysctl -w net.ipv4.ip_forward=1
+
     ip route show
 else
     ip route delete $IP_NET
     ip route delete $IP_NUTTX/32
 
     # delete nat rules to clean up
-    iptables -t nat -A POSTROUTING -o $IF_HOST -j MASQUERADE
+    iptables -t nat -D POSTROUTING -o $IF_HOST -j MASQUERADE
     iptables -D FORWARD -i $IF_HOST -o $IF_BRIDGE -m state --state RELATED,ESTABLISHED -j ACCEPT
     iptables -D FORWARD -i $IF_BRIDGE -o $IF_HOST -j ACCEPT
 

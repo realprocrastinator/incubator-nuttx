@@ -72,6 +72,12 @@ static int        local_close(FAR struct socket *psock);
 static int        local_ioctl(FAR struct socket *psock,
                     int cmd, unsigned long arg);
 static int        local_socketpair(FAR struct socket *psocks[2]);
+#ifdef CONFIG_NET_SOCKOPTS
+static int        local_getsockopt(FAR struct socket *psock, int level,
+                    int option, FAR void *value, FAR socklen_t *value_len);
+static int        local_setsockopt(FAR struct socket *psock, int level,
+                    int option, FAR const void *value, socklen_t value_len);
+#endif
 
 /****************************************************************************
  * Public Data
@@ -94,6 +100,10 @@ const struct sock_intf_s g_local_sockif =
   local_close,       /* si_close */
   local_ioctl,       /* si_ioctl */
   local_socketpair   /* si_socketpair */
+#ifdef CONFIG_NET_SOCKOPTS
+  , local_getsockopt /* si_getsockopt */
+  , local_setsockopt /* si_setsockopt */
+#endif
 };
 
 /****************************************************************************
@@ -344,8 +354,7 @@ static int local_getsockname(FAR struct socket *psock,
   FAR struct local_conn_s *conn;
 
   DEBUGASSERT(psock != NULL && psock->s_conn != NULL &&
-              unaddr != NULL && addrlen != NULL &&
-              *addrlen >= sizeof(sa_family_t));
+              unaddr != NULL && addrlen != NULL);
 
   if (*addrlen < sizeof(sa_family_t))
     {
@@ -370,15 +379,16 @@ static int local_getsockname(FAR struct socket *psock,
 
           *addrlen = sizeof(sa_family_t);
         }
-      else /* conn->lctype = LOCAL_TYPE_PATHNAME */
+      else /* conn->lc_type = LOCAL_TYPE_PATHNAME */
         {
           /* Get the full length of the socket name (incl. null terminator) */
 
-          int namelen = strlen(conn->lc_path) + 1;
+          size_t namelen = strlen(conn->lc_path) + 1 +
+                           (conn->lc_type == LOCAL_TYPE_ABSTRACT);
 
           /* Get the available length in the user-provided buffer. */
 
-          int pathlen = *addrlen - sizeof(sa_family_t);
+          size_t pathlen = *addrlen - sizeof(sa_family_t);
 
           /* Clip the socket name size so that if fits in the user buffer */
 
@@ -389,8 +399,15 @@ static int local_getsockname(FAR struct socket *psock,
 
           /* Copy the path into the user address structure */
 
-          strlcpy(unaddr->sun_path, conn->lc_path, namelen);
-          unaddr->sun_path[pathlen - 1] = '\0';
+          if (conn->lc_type == LOCAL_TYPE_ABSTRACT)
+            {
+              unaddr->sun_path[0] = '\0';
+              strlcpy(&unaddr->sun_path[1], conn->lc_path, namelen - 1);
+            }
+          else
+            {
+              strlcpy(unaddr->sun_path, conn->lc_path, namelen);
+            }
 
           *addrlen = sizeof(sa_family_t) + namelen;
         }
@@ -433,6 +450,88 @@ static int local_getpeername(FAR struct socket *psock,
 {
   return local_getsockname(psock, addr, addrlen);
 }
+
+#ifdef CONFIG_NET_SOCKOPTS
+
+/****************************************************************************
+ * Name: local_getsockopt
+ *
+ * Description:
+ *   local_getsockopt() retrieve the value for the option specified by the
+ *   'option' argument at the protocol level specified by the 'level'
+ *   argument. If the size of the option value is greater than 'value_len',
+ *   the value stored in the object pointed to by the 'value' argument will
+ *   be silently truncated. Otherwise, the length pointed to by the
+ *   'value_len' argument will be modified to indicate the actual length
+ *   of the 'value'.
+ *
+ *   The 'level' argument specifies the protocol level of the option. To
+ *   retrieve options at the socket level, specify the level argument as
+ *   SOL_SOCKET.
+ *
+ *   See <sys/socket.h> a complete list of values for the 'option' argument.
+ *
+ * Input Parameters:
+ *   psock     Socket structure of the socket to query
+ *   level     Protocol level to set the option
+ *   option    identifies the option to get
+ *   value     Points to the argument value
+ *   value_len The length of the argument value
+ *
+ ****************************************************************************/
+
+static int local_getsockopt(FAR struct socket *psock, int level, int option,
+                            FAR void *value, FAR socklen_t *value_len)
+{
+  DEBUGASSERT(psock != NULL && psock->s_conn != NULL &&
+              psock->s_domain == PF_LOCAL);
+
+#ifdef CONFIG_NET_LOCAL_SCM
+  if (level == SOL_SOCKET && option == SO_PEERCRED)
+    {
+      FAR struct local_conn_s *conn = psock->s_conn;
+      if (*value_len != sizeof(struct ucred))
+        {
+          return -EINVAL;
+        }
+
+      memcpy(value, &conn->lc_peer->lc_cred, sizeof(struct ucred));
+      return OK;
+    }
+#endif
+
+  return -ENOPROTOOPT;
+}
+
+/****************************************************************************
+ * Name: local_setsockopt
+ *
+ * Description:
+ *   local_setsockopt() sets the option specified by the 'option' argument,
+ *   at the protocol level specified by the 'level' argument, to the value
+ *   pointed to by the 'value' argument for the usrsock connection.
+ *
+ *   The 'level' argument specifies the protocol level of the option. To set
+ *   options at the socket level, specify the level argument as SOL_SOCKET.
+ *
+ *   See <sys/socket.h> a complete list of values for the 'option' argument.
+ *
+ * Input Parameters:
+ *   psock     Socket structure of the socket to query
+ *   level     Protocol level to set the option
+ *   option    identifies the option to set
+ *   value     Points to the argument value
+ *   value_len The length of the argument value
+ *
+ ****************************************************************************/
+
+static int local_setsockopt(FAR struct socket *psock, int level, int option,
+                            FAR const void *value, socklen_t value_len)
+{
+  return -ENOPROTOOPT;
+}
+
+#endif
 
 /****************************************************************************
  * Name: local_listen
@@ -737,6 +836,7 @@ static int local_ioctl(FAR struct socket *psock, int cmd, unsigned long arg)
             ret = -ENOTCONN;
           }
         break;
+      case FIONWRITE:
       case FIONSPACE:
         if (conn->lc_outfile.f_inode != NULL)
           {

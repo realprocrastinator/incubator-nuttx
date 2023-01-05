@@ -32,7 +32,6 @@
 #include <errno.h>
 #include <debug.h>
 #include <stdio.h>
-#include <queue.h>
 #include <stddef.h>
 #ifdef CONFIG_SYSTEM_PROPERTY
 #  include <system_property.h>
@@ -41,6 +40,7 @@
 #include <nuttx/arch.h>
 #include <nuttx/spinlock.h>
 #include <nuttx/kmalloc.h>
+#include <nuttx/queue.h>
 #include <nuttx/signal.h>
 #include <nuttx/usb/usb.h>
 #include <nuttx/usb/usbdev.h>
@@ -189,7 +189,7 @@ extern int lc823450_dvfs_boost(int timeout);
 static struct lc823450_usbdev_s g_usbdev;
 
 static DMA_HANDLE g_hdma;
-static sem_t dma_wait;
+static sem_t dma_wait = SEM_INITIALIZER(0);
 
 #ifdef CONFIG_USBMSC_OPT
 static struct lc823450_dma_llist g_dma_list[16];
@@ -319,7 +319,6 @@ static int epbuf_write(int epnum, void *buf, size_t len)
   privep = &g_usbdev.eplist[epnum];
 
 cont:
-
   if (epnum == 0)
     {
       while (!(getreg32(USB_EPCTRL(epnum)) & USB_EPCTRL_EMPTYI) &&
@@ -561,7 +560,7 @@ static struct usbdev_req_s *lc823450_epallocreq(struct usbdev_ep_s *ep)
   usbtrace(TRACE_EPALLOCREQ, ((struct lc823450_ep_s *)ep)->epphy);
 
   privreq = (struct lc823450_req_s *)
-    kmm_malloc(sizeof(struct lc823450_req_s));
+    kmm_zalloc(sizeof(struct lc823450_req_s));
 
   if (!privreq)
     {
@@ -569,7 +568,6 @@ static struct usbdev_req_s *lc823450_epallocreq(struct usbdev_ep_s *ep)
       return NULL;
     }
 
-  memset(privreq, 0, sizeof(struct lc823450_req_s));
   return &privreq->req;
 }
 
@@ -833,8 +831,6 @@ static void lc823450_freeep(struct usbdev_s *dev, struct usbdev_ep_s *ep)
   privep = (struct lc823450_ep_s *)ep;
 
   priv->used &= ~(1 << privep->epphy);
-
-  return;
 }
 
 /****************************************************************************
@@ -1454,7 +1450,6 @@ void arm_usbinitialize(void)
       return;
     }
 
-  nxsem_init(&dma_wait, 0, 0);
   g_hdma = lc823450_dmachannel(DMA_CHANNEL_USBDEV);
   lc823450_dmarequest(g_hdma, DMA_REQUEST_USBDEV);
 
@@ -1712,7 +1707,7 @@ int usbdev_unregister(struct usbdevclass_driver_s *driver)
  * Name: usbdev_msc_read_enter
  ****************************************************************************/
 
-void usbdev_msc_read_enter()
+void usbdev_msc_read_enter(void)
 {
   struct lc823450_ep_s *privep;
 #  ifdef CONFIG_DVFS
@@ -1723,14 +1718,13 @@ void usbdev_msc_read_enter()
   privep->epcmd &= ~USB_EPCMD_EMPTY_EN;
   epcmd_write(CONFIG_USBMSC_EPBULKIN, (privep->epcmd));
   lc823450_dmareauest_dir(g_hdma, DMA_REQUEST_USBDEV, 1);
-  nxsem_init(&dma_wait, 0, 0);
 }
 
 /****************************************************************************
  * Name: usbdev_msc_read_exit
  ****************************************************************************/
 
-void usbdev_msc_read_exit()
+void usbdev_msc_read_exit(void)
 {
   struct lc823450_ep_s *privep;
 
@@ -1826,7 +1820,6 @@ void usbdev_msc_write_enter0(void)
   privep->epcmd &= ~USB_EPCMD_READY_EN;
   epcmd_write(CONFIG_USBMSC_EPBULKOUT, (privep->epcmd));
   lc823450_dmareauest_dir(g_hdma, DMA_REQUEST_USBDEV, 0);
-  nxsem_init(&dma_wait, 0, 0);
 }
 
 /****************************************************************************

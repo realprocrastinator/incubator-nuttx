@@ -146,6 +146,28 @@
 #define CLR_BITMAP(m, n) do { (m)[(n) / 8] &= ~(1 << ((n) % 8)); } while (0)
 #define ISSET_BITMAP(m, n) ((m)[(n) / 8] & (1 << ((n) % 8)))
 
+#ifdef CONFIG_SMARTFS_ALIGNED_ACCESS
+#  define SMARTFS_NEXTSECTOR(h) \
+  (uint16_t)((FAR const uint8_t *)(h)->nextsector)[1] << 8 | \
+  (uint16_t)((FAR const uint8_t *)(h)->nextsector)[0]
+
+#  define SMARTFS_SET_NEXTSECTOR(h, v) \
+  do \
+    { \
+      ((FAR uint8_t *)(h)->nextsector)[0] = (v) & 0xff; \
+      ((FAR uint8_t *)(h)->nextsector)[1] = (v) >> 8;   \
+    } while (0)
+
+#else
+#  define SMARTFS_NEXTSECTOR(h) (*((FAR uint16_t *)(h)->nextsector))
+#  define SMARTFS_SET_NEXTSECTOR(h, v) \
+  do \
+    { \
+      ((*((FAR uint16_t *)(h)->nextsector)) = (uint16_t)(v)); \
+    } while (0)
+
+#endif
+
 #ifdef CONFIG_MTD_SMART_WEAR_LEVEL
 
 /****************************************************************************
@@ -460,10 +482,6 @@ static const struct file_operations g_fops =
   smart_loop_write, /* write */
   NULL,             /* seek */
   smart_loop_ioctl, /* ioctl */
-  NULL              /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL            /* unlink */
-#endif
 };
 #endif /* CONFIG_SMART_DEV_LOOP */
 
@@ -1323,7 +1341,6 @@ static int smart_setsectorsize(FAR struct smart_struct_s *dev, uint16_t size)
    */
 
 errexit:
-
 #ifndef CONFIG_MTD_SMART_MINIMIZE_RAM
   if (dev->smap)
     {
@@ -4975,8 +4992,7 @@ static int smart_readsector(FAR struct smart_struct_s *dev,
     {
       ferr("ERROR: Logical sector %d too large\n", req->logsector);
 
-      ret = -EINVAL;
-      goto errout;
+      return -EINVAL;
     }
 
 #ifndef CONFIG_MTD_SMART_MINIMIZE_RAM
@@ -4987,8 +5003,7 @@ static int smart_readsector(FAR struct smart_struct_s *dev,
   if (physsector == 0xffff)
     {
       ferr("ERROR: Logical sector %d not allocated\n", req->logsector);
-      ret = -EINVAL;
-      goto errout;
+      return -EINVAL;
     }
 
 #ifdef CONFIG_MTD_SMART_ENABLE_CRC
@@ -5004,8 +5019,7 @@ static int smart_readsector(FAR struct smart_struct_s *dev,
       /* TODO:  Mark the block bad */
 
       ferr("ERROR: Error reading phys sector %d\n", physsector);
-      ret = -EIO;
-      goto errout;
+      return -EIO;
     }
 
 #if SMART_STATUS_VERSION == 1
@@ -5031,8 +5045,7 @@ static int smart_readsector(FAR struct smart_struct_s *dev,
 
           ferr("ERROR: Error validating sector %d CRC during read\n",
                physsector);
-          ret = -EIO;
-          goto errout;
+          return -EIO;
         }
     }
 
@@ -5052,8 +5065,7 @@ static int smart_readsector(FAR struct smart_struct_s *dev,
   if (ret != sizeof(struct smart_sect_header_s))
     {
       ferr("ERROR: Error reading sector %d header\n", physsector);
-      ret = -EIO;
-      goto errout;
+      return -EIO;
     }
 
   /* Do a sanity check on the header data */
@@ -5066,8 +5078,7 @@ static int smart_readsector(FAR struct smart_struct_s *dev,
 
       ferr("ERROR: Error in logical sector %d header, phys=%d\n",
           req->logsector, physsector);
-      ret = -EIO;
-      goto errout;
+      return -EIO;
     }
 
   /* Read the sector data into the buffer */
@@ -5081,13 +5092,9 @@ static int smart_readsector(FAR struct smart_struct_s *dev,
   if (ret != req->count)
     {
       ferr("ERROR: Error reading phys sector %d\n", physsector);
-      ret = -EIO;
-      goto errout;
+      return -EIO;
     }
-
 #endif
-
-errout:
 
   return ret;
 }

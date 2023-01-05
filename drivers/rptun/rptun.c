@@ -177,10 +177,6 @@ static const struct file_operations g_rptun_devops =
   NULL,             /* write */
   NULL,             /* seek */
   rptun_dev_ioctl,  /* ioctl */
-  NULL              /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL            /* unlink */
-#endif
 };
 
 #ifdef CONFIG_RPTUN_LOADER
@@ -196,8 +192,7 @@ static const struct image_store_ops g_rptun_storeops =
 static METAL_DECLARE_LIST(g_rptun_cb);
 static METAL_DECLARE_LIST(g_rptun_priv);
 
-static rmutex_t g_rptun_lockcb   = NXRMUTEX_INITIALIZER;
-static rmutex_t g_rptun_lockpriv = NXRMUTEX_INITIALIZER;
+static rmutex_t g_rptun_lockcb = NXRMUTEX_INITIALIZER;
 
 /****************************************************************************
  * Private Functions
@@ -292,7 +287,13 @@ static int rptun_thread(int argc, FAR char *argv[])
 
 static void rptun_wakeup_rx(FAR struct rptun_priv_s *priv)
 {
-  nxsem_post(&priv->semrx);
+  int semcount;
+
+  nxsem_get_value(&priv->semrx, &semcount);
+  if (semcount < 1)
+    {
+      nxsem_post(&priv->semrx);
+    }
 }
 
 static bool rptun_is_recursive(FAR struct rptun_priv_s *priv)
@@ -740,13 +741,10 @@ static int rptun_dev_start(FAR struct remoteproc *rproc)
         }
     }
 
-  nxrmutex_unlock(&g_rptun_lockcb);
-
   /* Add priv to list */
 
-  nxrmutex_lock(&g_rptun_lockpriv);
   metal_list_add_tail(&g_rptun_priv, &priv->node);
-  nxrmutex_unlock(&g_rptun_lockpriv);
+  nxrmutex_unlock(&g_rptun_lockcb);
 
   virtqueue_enable_cb(priv->rvdev.svq);
 
@@ -772,13 +770,10 @@ static int rptun_dev_stop(FAR struct remoteproc *rproc)
 
   /* Remove priv from list */
 
-  nxrmutex_lock(&g_rptun_lockpriv);
+  nxrmutex_lock(&g_rptun_lockcb);
   metal_list_del(&priv->node);
-  nxrmutex_unlock(&g_rptun_lockpriv);
 
   /* Broadcast device_destroy to all registers */
-
-  nxrmutex_lock(&g_rptun_lockcb);
 
   metal_list_for_each(&g_rptun_cb, node)
     {
@@ -1069,7 +1064,7 @@ int rpmsg_register_callback(FAR void *priv_,
   cb->ns_match       = ns_match;
   cb->ns_bind        = ns_bind;
 
-  nxrmutex_lock(&g_rptun_lockpriv);
+  nxrmutex_lock(&g_rptun_lockcb);
 
   metal_list_for_each(&g_rptun_priv, node)
     {
@@ -1109,9 +1104,6 @@ again:
       nxrmutex_unlock(&priv->lock);
     }
 
-  nxrmutex_unlock(&g_rptun_lockpriv);
-
-  nxrmutex_lock(&g_rptun_lockcb);
   metal_list_add_tail(&g_rptun_cb, &cb->node);
   nxrmutex_unlock(&g_rptun_lockcb);
 
@@ -1147,12 +1139,8 @@ void rpmsg_unregister_callback(FAR void *priv_,
         }
     }
 
-  nxrmutex_unlock(&g_rptun_lockcb);
-
   if (device_destroy)
     {
-      nxrmutex_lock(&g_rptun_lockpriv);
-
       metal_list_for_each(&g_rptun_priv, pnode)
         {
           struct rptun_priv_s *priv;
@@ -1161,9 +1149,9 @@ void rpmsg_unregister_callback(FAR void *priv_,
                                     struct rptun_priv_s, node);
           device_destroy(&priv->rvdev.rdev, priv_);
         }
-
-      nxrmutex_unlock(&g_rptun_lockpriv);
     }
+
+  nxrmutex_unlock(&g_rptun_lockcb);
 }
 
 int rptun_initialize(FAR struct rptun_dev_s *dev)
@@ -1220,8 +1208,6 @@ int rptun_initialize(FAR struct rptun_dev_s *dev)
       nxsem_init(&priv->semrx, 0, 0);
     }
 
-  nxsem_set_protocol(&priv->semrx, SEM_PRIO_NONE);
-
   snprintf(arg1, sizeof(arg1), "0x%" PRIxPTR, (uintptr_t)priv);
   argv[0] = (void *)RPTUN_GET_CPUNAME(dev);
   argv[1] = arg1;
@@ -1238,7 +1224,6 @@ int rptun_initialize(FAR struct rptun_dev_s *dev)
 #endif
 
   nxsem_init(&priv->semtx, 0, 0);
-  nxsem_set_protocol(&priv->semtx, SEM_PRIO_NONE);
 
   return OK;
 

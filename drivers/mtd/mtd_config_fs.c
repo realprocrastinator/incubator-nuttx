@@ -141,10 +141,9 @@ static const struct file_operations g_mtdnvs_fops =
   NULL,            /* Write */
   NULL,            /* Seek */
   mtdconfig_ioctl, /* Ioctl */
+  NULL,            /* Truncate */
+  NULL,            /* Mmap */
   mtdconfig_poll   /* Poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL           /* Unlink */
-#endif
 };
 
 /****************************************************************************
@@ -1985,11 +1984,7 @@ static int mtdconfig_poll(FAR struct file *filep, FAR struct pollfd *fds,
 {
   if (setup)
     {
-      fds->revents |= fds->events & (POLLIN | POLLOUT);
-      if (fds->revents != 0)
-        {
-          nxsem_post(fds->sem);
-        }
+      poll_notify(&fds, 1, POLLIN | POLLOUT);
     }
 
   return OK;

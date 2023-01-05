@@ -220,11 +220,11 @@
 /* Ever-present MIN and MAX macros */
 
 #ifndef MIN
-#  define MIN(a,b) (a < b ? a : b)
+#  define MIN(a,b) (((a) < (b)) ? (a) : (b))
 #endif
 
 #ifndef MAX
-#  define MAX(a,b) (a > b ? a : b)
+#  define MAX(a,b) (((a) > (b)) ? (a) : (b))
 #endif
 
 /* Byte ordering in host-based values */
@@ -2827,7 +2827,7 @@ static int stm32l4_epconfigure(struct usbdev_ep_s *ep,
   if (!ep || !desc)
     {
       usbtrace(TRACE_DEVERROR(STM32L4_TRACEERR_INVALIDPARMS), 0);
-      uerr("ERROR: ep=%p desc=%p\n");
+      uerr("ERROR: ep=%p desc=%p\n", ep, desc);
       return -EINVAL;
     }
 #endif

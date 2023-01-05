@@ -43,7 +43,7 @@
 #include <nuttx/net/can.h>
 #include <netpacket/can.h>
 
-#ifdef CONFIG_NET_CAN_RAW_TX_DEADLINE
+#if defined(CONFIG_NET_CAN_RAW_TX_DEADLINE) || defined(CONFIG_NET_TIMESTAMP)
 #include <sys/time.h>
 #endif
 
@@ -112,7 +112,7 @@
 
 #define POOL_SIZE           1
 
-#ifdef CONFIG_NET_CAN_RAW_TX_DEADLINE
+#if defined(CONFIG_NET_CAN_RAW_TX_DEADLINE) || defined(CONFIG_NET_TIMESTAMP)
 #define MSG_DATA            sizeof(struct timeval)
 #else
 #define MSG_DATA            0
@@ -934,20 +934,17 @@ static int fdcan_txpoll(struct net_driver_s *dev)
 
   if (priv->dev.d_len > 0)
     {
-      if (!devif_loopback(&priv->dev))
+      /* Send the packet */
+
+      fdcan_transmit(priv);
+
+      /* Check if there is room in the device to hold another packet. If
+       * not, return a non-zero value to terminate the poll.
+       */
+
+      if (fdcan_txringfull(priv))
         {
-          /* Send the packet */
-
-          fdcan_transmit(priv);
-
-          /* Check if there is room in the device to hold another packet. If
-           * not, return a non-zero value to terminate the poll.
-           */
-
-          if (fdcan_txringfull(priv))
-            {
-              return -EBUSY;
-            }
+          return -EBUSY;
         }
     }
 

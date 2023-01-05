@@ -30,8 +30,8 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-extern uint32_t __stack;
-#define IDLE_STACK      ((const char *)&__stack - 4)
+extern uint8_t __stack[];
+#define IDLE_STACK      (__stack - 4)
 #ifndef ARMV8M_PERIPHERAL_INTERRUPTS
 #  error ARMV8M_PERIPHERAL_INTERRUPTS must be defined to the number of I/O interrupts to be supported
 #endif
@@ -63,7 +63,7 @@ extern void exception_common(void);
  * Note that the [ ... ] designated initialiser is a GCC extension.
  */
 
-const void *_vectors[] locate_data(".vectors") aligned_data(0x100) =
+const void * const _vectors[] locate_data(".vectors") aligned_data(0x100) =
 {
   /* Initial stack */
 

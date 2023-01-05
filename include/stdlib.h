@@ -132,12 +132,26 @@ extern "C"
 
 void      srand(unsigned int seed);
 int       rand(void);
+void      lcong48(FAR unsigned short int param[7]);
+FAR unsigned short int *seed48(FAR unsigned short int seed16v[3]);
+void      srand48(long int seedval);
+#ifdef CONFIG_HAVE_LONG_LONG
+long int  jrand48(FAR unsigned short int xsubi[3]);
+long int  lrand48(void);
+long int  mrand48(void);
+long int  nrand48(FAR unsigned short int xsubi[3]);
+#  ifdef CONFIG_HAVE_DOUBLE
+double    drand48(void);
+double    erand48(FAR unsigned short int xsubi[3]);
+#  endif
+#endif
 
 #define   srandom(s) srand(s)
 long      random(void);
 
 #ifdef CONFIG_CRYPTO_RANDOM_POOL
 void      arc4random_buf(FAR void *bytes, size_t nbytes);
+uint32_t  arc4random(void);
 #endif
 
 /* Environment variable support */
@@ -212,14 +226,14 @@ size_t    wcstombs(FAR char *dst, FAR const wchar_t *src, size_t len);
 
 /* Memory Management */
 
-FAR void *malloc(size_t);
-FAR void *valloc(size_t);
+FAR void *malloc(size_t) malloc_like1(1);
+FAR void *valloc(size_t) malloc_like1(1);
 void      free(FAR void *);
-FAR void *realloc(FAR void *, size_t);
-FAR void *memalign(size_t, size_t);
-FAR void *zalloc(size_t);
-FAR void *calloc(size_t, size_t);
-FAR void *aligned_alloc(size_t, size_t);
+FAR void *realloc(FAR void *, size_t) realloc_like(2);
+FAR void *memalign(size_t, size_t) malloc_like1(2);
+FAR void *zalloc(size_t) malloc_like1(1);
+FAR void *calloc(size_t, size_t) malloc_like2(1, 2);
+FAR void *aligned_alloc(size_t, size_t) malloc_like1(2);
 int       posix_memalign(FAR void **, size_t, size_t);
 
 /* Pseudo-Terminals */

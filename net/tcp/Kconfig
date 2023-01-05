@@ -9,7 +9,6 @@ config NET_TCP
 	bool "TCP/IP Networking"
 	default n
 	select NET_READAHEAD if !NET_TCP_NO_STACK
-	depends on SCHED_WORKQUEUE
 	---help---
 		Enable or disable TCP networking support.
 
@@ -66,6 +65,14 @@ config NET_TCP_RTO
 	default 3
 	---help---
 		RTO of TCP/IP connections (all tasks)
+
+config NET_TCP_MAXRTX
+	int "Maximum retransmitted number of TCP/IP data packet"
+	default 8
+
+config NET_TCP_MAXSYNRTX
+	int "Maximum retransmitted number of TCP/IP SYN packet"
+	default 5
 
 config NET_TCP_WAIT_TIMEOUT
 	int "TIME_WAIT Length of TCP/IP connections"
@@ -186,6 +193,20 @@ config NET_TCP_WRBUFFER_DUMP
 		detail.
 
 endif # NET_TCP_WRITE_BUFFERS
+
+config NET_TCP_RECV_PACK
+	bool "Enable TCP/IP receive data in a continuous poll"
+	default y
+	---help---
+		This option will enable TCP/IP receive data into a continuous iob chain.
+		Fragmentation of network data will intensify iob consumption, if
+		the device receives a message storm of fragmented packets, the iob
+		cache will not be effectively used, this is not allowed on iot devices
+		since the resources of such devices are limited. Of course, this
+		also takes some disadvantages: data needs to be copied.
+		This option will brings some balance on resource-constrained devices,
+		enable this config to reduce the consumption of iob, the received iob
+		buffers will be merged into the contiguous iob chain.
 
 config NET_TCPBACKLOG
 	bool "TCP/IP backlog support"

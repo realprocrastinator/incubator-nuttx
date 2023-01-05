@@ -23,7 +23,7 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
-#if defined(CONFIG_NET) && defined(CONFIG_NET_USRSOCK)
+#if defined(CONFIG_NET_USRSOCK_DEVICE)
 
 #include <sys/types.h>
 #include <inttypes.h>
@@ -40,7 +40,7 @@
 
 #include <nuttx/random.h>
 #include <nuttx/fs/fs.h>
-#include <nuttx/semaphore.h>
+#include <nuttx/mutex.h>
 #include <nuttx/net/net.h>
 #include <nuttx/net/usrsock.h>
 
@@ -58,8 +58,8 @@
 
 struct usrsockdev_s
 {
-  sem_t   devsem; /* Lock for device node */
-  uint8_t ocount; /* The number of times the device has been opened */
+  mutex_t devlock; /* Lock for device node */
+  uint8_t ocount;  /* The number of times the device has been opened */
   struct
   {
     FAR const struct iovec *iov;    /* Pending request buffers */
@@ -103,38 +103,19 @@ static const struct file_operations g_usrsockdevops =
   usrsockdev_write,   /* write */
   usrsockdev_seek,    /* seek */
   NULL,               /* ioctl */
+  NULL,               /* mmap */
+  NULL,               /* truncate */
   usrsockdev_poll     /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL              /* unlink */
-#endif
 };
 
 static struct usrsockdev_s g_usrsockdev =
 {
-  NXSEM_INITIALIZER(1, PRIOINHERIT_FLAGS_DISABLE)
+  NXMUTEX_INITIALIZER
 };
 
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-/****************************************************************************
- * Name: usrsockdev_semtake() and usrsockdev_semgive()
- *
- * Description:
- *   Take/give semaphore
- *
- ****************************************************************************/
-
-static int usrsockdev_semtake(FAR sem_t *sem)
-{
-  return nxsem_wait_uninterruptible(sem);
-}
-
-static void usrsockdev_semgive(FAR sem_t *sem)
-{
-  nxsem_post(sem);
-}
 
 /****************************************************************************
  * Name: usrsockdev_is_opened
@@ -150,29 +131,6 @@ static bool usrsockdev_is_opened(FAR struct usrsockdev_s *dev)
     }
 
   return ret;
-}
-
-/****************************************************************************
- * Name: usrsockdev_pollnotify
- ****************************************************************************/
-
-static void usrsockdev_pollnotify(FAR struct usrsockdev_s *dev,
-                                  pollevent_t eventset)
-{
-  int i;
-  for (i = 0; i < ARRAY_SIZE(dev->pollfds); i++)
-    {
-      struct pollfd *fds = dev->pollfds[i];
-      if (fds)
-        {
-          fds->revents |= (fds->events & eventset);
-          if (fds->revents != 0)
-            {
-              ninfo("Report events: %08" PRIx32 "\n", fds->revents);
-              nxsem_post(fds->sem);
-            }
-        }
-    }
 }
 
 /****************************************************************************
@@ -202,7 +160,7 @@ static ssize_t usrsockdev_read(FAR struct file *filep, FAR char *buffer,
 
   DEBUGASSERT(dev);
 
-  ret = usrsockdev_semtake(&dev->devsem);
+  ret = nxmutex_lock(&dev->devlock);
   if (ret < 0)
     {
       return ret;
@@ -217,7 +175,7 @@ static ssize_t usrsockdev_read(FAR struct file *filep, FAR char *buffer,
       /* Copy request to user-space. */
 
       rlen = usrsock_iovec_get(buffer, len, dev->req.iov, dev->req.iovcnt,
-                               dev->req.pos);
+                               dev->req.pos, NULL);
       if (rlen < 0)
         {
           /* Tried reading beyond buffer. */
@@ -235,7 +193,7 @@ static ssize_t usrsockdev_read(FAR struct file *filep, FAR char *buffer,
       len = 0;
     }
 
-  usrsockdev_semgive(&dev->devsem);
+  nxmutex_unlock(&dev->devlock);
   return len;
 }
 
@@ -262,7 +220,7 @@ static off_t usrsockdev_seek(FAR struct file *filep, off_t offset,
 
   DEBUGASSERT(dev);
 
-  ret = usrsockdev_semtake(&dev->devsem);
+  ret = nxmutex_lock(&dev->devlock);
   if (ret < 0)
     {
       return ret;
@@ -286,7 +244,7 @@ static off_t usrsockdev_seek(FAR struct file *filep, off_t offset,
       /* Copy request to user-space. */
 
       rlen = usrsock_iovec_get(NULL, 0, dev->req.iov, dev->req.iovcnt,
-                               pos);
+                               pos, NULL);
       if (rlen < 0)
         {
           /* Tried seek beyond buffer. */
@@ -303,7 +261,7 @@ static off_t usrsockdev_seek(FAR struct file *filep, off_t offset,
       pos = 0;
     }
 
-  usrsockdev_semgive(&dev->devsem);
+  nxmutex_unlock(&dev->devlock);
   return pos;
 }
 
@@ -335,7 +293,7 @@ static ssize_t usrsockdev_write(FAR struct file *filep,
 
   DEBUGASSERT(dev);
 
-  ret = usrsockdev_semtake(&dev->devsem);
+  ret = nxmutex_lock(&dev->devlock);
   if (ret < 0)
     {
       return ret;
@@ -349,7 +307,7 @@ static ssize_t usrsockdev_write(FAR struct file *filep,
       dev->req.iovcnt = 0;
     }
 
-  usrsockdev_semgive(&dev->devsem);
+  nxmutex_unlock(&dev->devlock);
   return ret;
 }
 
@@ -370,7 +328,7 @@ static int usrsockdev_open(FAR struct file *filep)
 
   DEBUGASSERT(dev);
 
-  ret = usrsockdev_semtake(&dev->devsem);
+  ret = nxmutex_lock(&dev->devlock);
   if (ret < 0)
     {
       return ret;
@@ -395,7 +353,7 @@ static int usrsockdev_open(FAR struct file *filep)
       ret = OK;
     }
 
-  usrsockdev_semgive(&dev->devsem);
+  nxmutex_unlock(&dev->devlock);
   return ret;
 }
 
@@ -415,7 +373,7 @@ static int usrsockdev_close(FAR struct file *filep)
 
   DEBUGASSERT(dev);
 
-  ret = usrsockdev_semtake(&dev->devsem);
+  ret = nxmutex_lock(&dev->devlock);
   if (ret < 0)
     {
       return ret;
@@ -432,7 +390,7 @@ static int usrsockdev_close(FAR struct file *filep)
   dev->req.iovcnt = 0;
   dev->req.pos = 0;
 
-  usrsockdev_semgive(&dev->devsem);
+  nxmutex_unlock(&dev->devlock);
   usrsock_abort();
 
   return ret;
@@ -466,7 +424,7 @@ static int usrsockdev_poll(FAR struct file *filep, FAR struct pollfd *fds,
 
   /* Are we setting up the poll?  Or tearing it down? */
 
-  ret = usrsockdev_semtake(&dev->devsem);
+  ret = nxmutex_lock(&dev->devlock);
   if (ret < 0)
     {
       return ret;
@@ -507,15 +465,12 @@ static int usrsockdev_poll(FAR struct file *filep, FAR struct pollfd *fds,
 
       if (dev->req.iov != NULL &&
           !(usrsock_iovec_get(NULL, 0, dev->req.iov,
-                              dev->req.iovcnt, dev->req.pos) < 0))
+                              dev->req.iovcnt, dev->req.pos, NULL) < 0))
         {
           eventset |= POLLIN;
         }
 
-      if (eventset)
-        {
-          usrsockdev_pollnotify(dev, eventset);
-        }
+      poll_notify(dev->pollfds, ARRAY_SIZE(dev->pollfds), eventset);
     }
   else
     {
@@ -536,7 +491,7 @@ static int usrsockdev_poll(FAR struct file *filep, FAR struct pollfd *fds,
     }
 
 errout:
-  usrsockdev_semgive(&dev->devsem);
+  nxmutex_unlock(&dev->devlock);
   return ret;
 }
 
@@ -555,7 +510,7 @@ int usrsock_request(FAR struct iovec *iov, unsigned int iovcnt)
 
   /* Set outstanding request for daemon to handle. */
 
-  net_lockedwait_uninterruptible(&dev->devsem);
+  net_lockedwait_uninterruptible(&dev->devlock);
 
   if (usrsockdev_is_opened(dev))
     {
@@ -566,7 +521,7 @@ int usrsock_request(FAR struct iovec *iov, unsigned int iovcnt)
 
       /* Notify daemon of new request. */
 
-      usrsockdev_pollnotify(dev, POLLIN);
+      poll_notify(dev->pollfds, ARRAY_SIZE(dev->pollfds), POLLIN);
     }
   else
     {
@@ -574,7 +529,7 @@ int usrsock_request(FAR struct iovec *iov, unsigned int iovcnt)
       ret = -ENETDOWN;
     }
 
-  usrsockdev_semgive(&dev->devsem);
+  nxmutex_unlock(&dev->devlock);
   return ret;
 }
 
@@ -592,4 +547,4 @@ void usrsock_register(void)
                   &g_usrsockdev);
 }
 
-#endif /* CONFIG_NET && CONFIG_NET_USRSOCK */
+#endif /* CONFIG_NET_USRSOCK_DEVICE */

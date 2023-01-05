@@ -119,10 +119,9 @@ static const struct file_operations mtdconfig_fops =
   NULL,            /* write */
   NULL,            /* seek */
   mtdconfig_ioctl, /* ioctl */
+  NULL,            /* mmap */
+  NULL,            /* truncate */
   mtdconfig_poll   /* poll */
-#ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
-  , NULL            /* unlink */
-#endif
 };
 
 /****************************************************************************
@@ -1713,11 +1712,7 @@ static int mtdconfig_poll(FAR struct file *filep, FAR struct pollfd *fds,
 {
   if (setup)
     {
-      fds->revents |= (fds->events & (POLLIN | POLLOUT));
-      if (fds->revents != 0)
-        {
-          nxsem_post(fds->sem);
-        }
+      poll_notify(&fds, 1, POLLIN | POLLOUT);
     }
 
   return OK;
@@ -1811,7 +1806,7 @@ int mtdconfig_unregister(void)
 
   inode = file.f_inode;
   dev = (FAR struct mtdconfig_struct_s *)inode->i_private;
-  nxmutex_destroy(&dev->exclsem);
+  nxsem_destroy(&dev->exclsem);
   kmm_free(dev);
 
   file_close(&file);

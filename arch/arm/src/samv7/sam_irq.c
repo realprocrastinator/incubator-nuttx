@@ -34,7 +34,9 @@
 #include <arch/armv7-m/nvicpri.h>
 
 #include "nvic.h"
-#include "ram_vectors.h"
+#ifdef CONFIG_ARCH_RAMVECTORS
+#  include "ram_vectors.h"
+#endif
 #include "arm_internal.h"
 
 #ifdef CONFIG_SAMV7_GPIO_IRQ
@@ -81,7 +83,7 @@ static void sam_dumpnvic(const char *msg, int irq)
 
   irqinfo("NVIC (%s, irq=%d):\n", msg, irq);
   irqinfo("  INTCTRL:    %08x VECTAB:  %08x\n",
-        getreg32(NVIC_INTCTRL), getreg32(NVIC_VECTAB));
+          getreg32(NVIC_INTCTRL), getreg32(NVIC_VECTAB));
 #if 0
   irqinfo("  SYSH ENABLE MEMFAULT: %08x BUSFAULT: %08x USGFAULT: %08x "
           "SYSTICK: %08x\n",
@@ -142,7 +144,7 @@ static void sam_dumpnvic(const char *msg, int irq)
 #endif
 
 /****************************************************************************
- * Name: sam_nmi, sam_busfault, sam_usagefault, sam_pendsv, sam_dbgmonitor,
+ * Name: sam_nmi, sam_pendsv, sam_dbgmonitor,
  *       sam_pendsv, sam_reserved
  *
  * Description:
@@ -157,24 +159,6 @@ static int sam_nmi(int irq, void *context, void *arg)
 {
   up_irq_save();
   _err("PANIC!!! NMI received\n");
-  PANIC();
-  return 0;
-}
-
-static int sam_busfault(int irq, void *context, void *arg)
-{
-  up_irq_save();
-  _err("PANIC!!! Bus fault received: %08" PRIx32 "\n",
-       getreg32(NVIC_CFAULTS));
-  PANIC();
-  return 0;
-}
-
-static int sam_usagefault(int irq, void *context, void *arg)
-{
-  up_irq_save();
-  _err("PANIC!!! Usage fault received: %08" PRIx32 "\n",
-       getreg32(NVIC_CFAULTS));
   PANIC();
   return 0;
 }
@@ -377,6 +361,13 @@ void up_irqinitialize(void)
    */
 
   arm_ramvec_initialize();
+
+  /* At this moment both I- and D-Caches have been already enabled in
+   * __start so we need to flush RAM vectors table to memory.
+   */
+
+  up_clean_dcache((uintptr_t)g_ram_vectors,
+                  (uintptr_t)g_ram_vectors + sizeof(g_ram_vectors));
 #endif
 
   /* Set all interrupts (and exceptions) to the default priority */
@@ -430,8 +421,8 @@ void up_irqinitialize(void)
 #ifndef CONFIG_ARM_MPU
   irq_attach(SAM_IRQ_MEMFAULT, arm_memfault, NULL);
 #endif
-  irq_attach(SAM_IRQ_BUSFAULT, sam_busfault, NULL);
-  irq_attach(SAM_IRQ_USAGEFAULT, sam_usagefault, NULL);
+  irq_attach(SAM_IRQ_BUSFAULT, arm_busfault, NULL);
+  irq_attach(SAM_IRQ_USAGEFAULT, arm_usagefault, NULL);
   irq_attach(SAM_IRQ_PENDSV, sam_pendsv, NULL);
   irq_attach(SAM_IRQ_DBGMONITOR, sam_dbgmonitor, NULL);
   irq_attach(SAM_IRQ_RESERVED, sam_reserved, NULL);
