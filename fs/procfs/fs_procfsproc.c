@@ -153,7 +153,7 @@ struct proc_envinfo_s
 
 static FAR const char *g_policy[4] =
 {
-  "SCHED_FIFO", "SCHED_RR", "SCHED_SPORADIC", "SCHED_OTHER"
+  "SCHED_FIFO", "SCHED_RR", "SCHED_SPORADIC"
 };
 
 /****************************************************************************
@@ -483,8 +483,7 @@ static FAR const struct proc_node_s *proc_findnode(FAR const char *relpath)
  *                                   MQ full}
  *   Flags:      xxx                N,P,X
  *   Priority:   nnn                Decimal, 0-255
- *   Scheduler:  xxxxxxxxxxxxxx     {SCHED_FIFO, SCHED_RR, SCHED_SPORADIC,
- *                                   SCHED_OTHER}
+ *   Scheduler:  xxxxxxxxxxxxxx     {SCHED_FIFO, SCHED_RR, SCHED_SPORADIC}
  *   Sigmask:    nnnnnnnn           Hexadecimal, 32-bit
  *
  ****************************************************************************/
@@ -1485,7 +1484,7 @@ static int proc_open(FAR struct file *filep, FAR const char *relpath,
 
   if (strncmp(relpath, "self", 4) == 0)
     {
-      tmp = gettid();                   /* Get the TID of the calling task */
+      tmp = nxsched_gettid();           /* Get the TID of the calling task */
       ptr = (FAR char *)relpath + 4;    /* Discard const */
     }
   else
@@ -1793,7 +1792,7 @@ static int proc_opendir(FAR const char *relpath,
 
   if (strncmp(relpath, "self", 4) == 0)
     {
-      tmp = gettid();                   /* Get the TID of the calling task */
+      tmp = nxsched_gettid();           /* Get the TID of the calling task */
       ptr = (FAR char *)relpath + 4;    /* Discard const */
     }
   else
@@ -2033,7 +2032,7 @@ static int proc_stat(const char *relpath, struct stat *buf)
 
   if (strncmp(relpath, "self", 4) == 0)
     {
-      tmp = gettid();                   /* Get the TID of the calling task */
+      tmp = nxsched_gettid();           /* Get the TID of the calling task */
       ptr = (FAR char *)relpath + 4;    /* Discard const */
     }
   else

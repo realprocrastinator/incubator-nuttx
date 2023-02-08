@@ -40,6 +40,9 @@ NUTTX = $(call CONVERT_PATH,$(TOPDIR)$(DELIM)nuttx$(EXEEXT))
 
 LINKOBJS = sim_head$(OBJEXT)
 REQUIREDOBJS = $(LINKOBJS) sim_doirq$(OBJEXT)
+ifeq ($(CONFIG_SIM_NETUSRSOCK),y)
+  REQUIREDOBJS += sim_usrsock$(OBJEXT)
+endif
 
 ifeq ($(CONFIG_HOST_X86_64),y)
 ifeq ($(CONFIG_SIM_M32),y)
@@ -103,6 +106,10 @@ ifeq ($(CONFIG_HAVE_CXXINITIALIZE),y)
 endif
 else
   STDLIBS += -lrt
+endif
+
+ifneq ($(CONFIG_LIBM),y)
+  STDLIBS += -lm
 endif
 
 ifeq ($(CONFIG_STACK_COLORATION),y)
@@ -194,8 +201,10 @@ endif
 
 ifeq ($(CONFIG_SIM_SOUND_ALSA),y)
   CSRCS += sim_alsa.c
+  CSRCS += sim_offload.c
   STDLIBS += -lasound
   STDLIBS += -lmad
+  STDLIBS += -lmp3lame
 endif
 
 ifeq ($(CONFIG_SIM_VIDEO_V4L2),y)
@@ -222,6 +231,20 @@ HEADOBJ = $(HEADSRC:.c=$(OBJEXT))
 
 SRCS = $(ASRCS) $(CSRCS) $(HOSTSRCS)
 OBJS = $(AOBJS) $(COBJS) $(HOSTOBJS)
+
+$(foreach lib,$(notdir $(wildcard $(APPDIR)$(DELIM)staging$(DELIM)*$(LIBEXT))), \
+  $(foreach elib,$(EXTRA_LIBS), \
+    $(if $(filter $(notdir $(elib)),$(lib)), \
+      $(eval NAMEFULL_LIBS+=$(elib)), \
+      $(if $(filter $(notdir $(elib)),$(patsubst lib%$(LIBEXT),-l%,$(lib))), \
+        $(eval NAMESPEC_LIBS+=$(elib)) \
+       ) \
+     ) \
+   ) \
+ )
+
+EXTRA_LIBS := $(filter-out $(NAMEFULL_LIBS) $(NAMESPEC_LIBS),$(EXTRA_LIBS))
+EXTRA_LIBS += $(wildcard $(APPDIR)$(DELIM)staging$(DELIM)*$(LIBEXT))
 
 # Override in Make.defs if linker is not 'ld'
 
@@ -254,7 +277,7 @@ RELLIBS += -lboard
 
 all: sim_head$(OBJEXT) libarch$(LIBEXT)
 
-.PHONY: export_startup clean distclean cleanrel depend
+.PHONY: export_startup clean distclean cleanrel depend board/libboard$(LIBEXT)
 
 $(AOBJS): %$(OBJEXT): %.S
 	$(call ASSEMBLE, $<, $@)
@@ -263,8 +286,9 @@ $(COBJS) $(LINKOBJS): %$(OBJEXT): %.c
 	$(call COMPILE, $<, $@)
 
 $(HOSTOBJS) $(HEADOBJ): %$(OBJEXT): %.c
-	$(Q) echo "CC:  $<"
+	$(Q) $(ECHO_BEGIN)"CC:  $<"
 	$(Q) "$(CC)" -c $(HOSTCFLAGS) $< -o $@
+	$(Q) $(ECHO_END)
 
 # The architecture-specific library
 
@@ -304,7 +328,7 @@ define LINK_ALLSYMS
 	$(if $(CONFIG_HOST_MACOS), \
 	$(Q) $(TOPDIR)/tools/mkallsyms.sh noconst $(NUTTX) $(CROSSDEV) > allsyms.tmp, \
 	$(Q) $(TOPDIR)/tools/mkallsyms.py $(NUTTX) allsyms.tmp)
-	$(Q) $(call COMPILE, -x c allsyms.tmp, allsyms$(OBJEXT))
+	$(Q) $(call COMPILE, allsyms.tmp, allsyms$(OBJEXT), -x c)
 	$(if $(CONFIG_HAVE_CXX),\
 	$(Q) "$(CXX)" $(CFLAGS) $(LDFLAGS) -o $(NUTTX) \
 	      $(HEADOBJ) nuttx.rel $(HOSTOBJS) $(STDLIBS) allsyms$(OBJEXT),\

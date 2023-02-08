@@ -91,6 +91,7 @@ static ssize_t    inet_recvmsg(FAR struct socket *psock,
 static int        inet_ioctl(FAR struct socket *psock,
                     int cmd, unsigned long arg);
 static int        inet_socketpair(FAR struct socket *psocks[2]);
+static int        inet_shutdown(FAR struct socket *psock, int how);
 #ifdef CONFIG_NET_SOCKOPTS
 static int        inet_getsockopt(FAR struct socket *psock, int level,
                     int option, FAR void *value, FAR socklen_t *value_len);
@@ -123,7 +124,8 @@ static const struct sock_intf_s g_inet_sockif =
   inet_recvmsg,     /* si_recvmsg */
   inet_close,       /* si_close */
   inet_ioctl,       /* si_ioctl */
-  inet_socketpair   /* si_socketpair */
+  inet_socketpair,  /* si_socketpair */
+  inet_shutdown     /* si_shutdown */
 #ifdef CONFIG_NET_SOCKOPTS
   , inet_getsockopt /* si_getsockopt */
   , inet_setsockopt /* si_setsockopt */
@@ -750,8 +752,13 @@ static int inet_getsockopt(FAR struct socket *psock, int level, int option,
 #endif
 
 #ifdef CONFIG_NET_IPv4
-      case IPPROTO_IP:
+      case IPPROTO_IP:/* IPv4 protocol socket options (see include/netinet/in.h) */
         return ipv4_getsockopt(psock, option, value, value_len);
+#endif
+
+#ifdef CONFIG_NET_IPv6
+      case IPPROTO_IPV6:/* IPv6 protocol socket options (see include/netinet/in.h) */
+          return ipv6_getsockopt(psock, option, value, value_len);
 #endif
 
       default:
@@ -1018,12 +1025,12 @@ static int inet_setsockopt(FAR struct socket *psock, int level, int option,
 #endif
 
 #ifdef CONFIG_NET_IPv4
-      case IPPROTO_IP:/* TCP protocol socket options (see include/netinet/in.h) */
+      case IPPROTO_IP:/* IPv4 protocol socket options (see include/netinet/in.h) */
         return ipv4_setsockopt(psock, option, value, value_len);
 #endif
 
 #ifdef CONFIG_NET_IPv6
-      case IPPROTO_IPV6:/* TCP protocol socket options (see include/netinet/in.h) */
+      case IPPROTO_IPV6:/* IPv6 protocol socket options (see include/netinet/in.h) */
         return ipv6_setsockopt(psock, option, value, value_len);
 #endif
       default:
@@ -1936,6 +1943,8 @@ static int inet_socketpair(FAR struct socket *psocks[2])
 #if defined(CONFIG_NET_TCP)
   if (psocks[0]->s_type == SOCK_STREAM)
     {
+      FAR struct socket_conn_s *conn = psocks[1]->s_conn;
+
       ret = psock_listen(pserver, 2);
       if (ret < 0)
         {
@@ -1954,7 +1963,8 @@ static int inet_socketpair(FAR struct socket *psocks[2])
 
       psock_close(psocks[1]);
 
-      ret = psock_accept(pserver, &addr[1].addr, &len, psocks[1]);
+      ret = psock_accept(pserver, &addr[1].addr, &len, psocks[1],
+                         conn->s_flags & _SF_NONBLOCK ? SOCK_NONBLOCK : 0);
     }
 #endif /* CONFIG_NET_TCP */
 
@@ -1970,6 +1980,41 @@ errout:
 #else
   return -EOPNOTSUPP;
 #endif /* CONFIG_NET_TCP || CONFIG_NET_UDP */
+}
+
+/****************************************************************************
+ * Name: inet_shutdown
+ *
+ * Description:
+ *   Performs the shutdown operation on an AF_INET or AF_INET6 socket
+ *
+ * Input Parameters:
+ *   psock   Socket instance
+ *   how     Specifies the type of shutdown
+ *
+ * Returned Value:
+ *   0: Success; Negated errno on failure
+ *
+ ****************************************************************************/
+
+static int inet_shutdown(FAR struct socket *psock, int how)
+{
+  switch (psock->s_type)
+    {
+#ifdef CONFIG_NET_TCP
+      case SOCK_STREAM:
+#ifdef NET_TCP_HAVE_STACK
+        return tcp_shutdown(psock, how);
+#else
+        nwarn("WARNING: SOCK_STREAM support is not available in this "
+              "configuration\n");
+        return -EAFNOSUPPORT;
+#endif /* NET_TCP_HAVE_STACK */
+#endif /* CONFIG_NET_TCP */
+
+      default:
+        return -EOPNOTSUPP;
+    }
 }
 
 /****************************************************************************

@@ -24,6 +24,7 @@
 
 #include <nuttx/config.h>
 
+#include <nuttx/addrenv.h>
 #include <nuttx/arch.h>
 #include <nuttx/board.h>
 #include <nuttx/irq.h>
@@ -38,6 +39,7 @@
 #include <debug.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <sys/utsname.h>
 
 #include "irq/irq.h"
 #include "sched/sched.h"
@@ -109,10 +111,10 @@ static void stack_dump(uintptr_t sp, uintptr_t stack_top)
   for (stack = sp & ~0x1f; stack < (stack_top & ~0x1f); stack += 32)
     {
       FAR uint32_t *ptr = (FAR uint32_t *)stack;
-      _alert("%" PRIxPTR ": %08" PRIx32 " %08" PRIx32 " %08" PRIx32
+      _alert("%p: %08" PRIx32 " %08" PRIx32 " %08" PRIx32
              " %08" PRIx32 " %08" PRIx32 " %08" PRIx32 " %08" PRIx32
              " %08" PRIx32 "\n",
-             stack, ptr[0], ptr[1], ptr[2], ptr[3],
+             (FAR void *)stack, ptr[0], ptr[1], ptr[2], ptr[3],
              ptr[4], ptr[5], ptr[6], ptr[7]);
     }
 }
@@ -128,8 +130,8 @@ static void dump_stack(FAR const char *tag, uintptr_t sp,
   uintptr_t top = base + size;
 
   _alert("%s Stack:\n", tag);
-  _alert("sp:     %08" PRIxPTR "\n", sp);
-  _alert("  base: %08" PRIxPTR "\n", base);
+  _alert("sp:     %p\n", (FAR void *)sp);
+  _alert("  base: %p\n", (FAR void *)base);
   _alert("  size: %08zu\n", size);
 
   if (sp >= base && sp < top)
@@ -224,7 +226,6 @@ static void show_stacks(FAR struct tcb_s *rtcb)
 static void get_argv_str(FAR struct tcb_s *tcb, FAR char *args, size_t size)
 {
 #ifdef CONFIG_ARCH_ADDRENV
-  save_addrenv_t oldenv;
   bool saved = false;
 #endif
 
@@ -239,17 +240,9 @@ static void get_argv_str(FAR struct tcb_s *tcb, FAR char *args, size_t size)
     }
 
 #ifdef CONFIG_ARCH_ADDRENV
-  if ((tcb->flags & TCB_FLAG_TTYPE_MASK) != TCB_FLAG_TTYPE_KERNEL)
+  if (tcb->addrenv_own != NULL)
     {
-      if ((tcb->group->tg_flags & GROUP_FLAG_ADDRENV) == 0)
-        {
-          /* Process should have address environment, but doesn't */
-
-          *args = '\0';
-          return;
-        }
-
-      up_addrenv_select(&tcb->group->tg_addrenv, &oldenv);
+      addrenv_select(tcb->addrenv_own);
       saved = true;
     }
 #endif
@@ -276,7 +269,7 @@ static void get_argv_str(FAR struct tcb_s *tcb, FAR char *args, size_t size)
 #ifdef CONFIG_ARCH_ADDRENV
   if (saved)
     {
-      up_addrenv_restore(&oldenv);
+      addrenv_restore();
     }
 #endif
 }
@@ -328,6 +321,7 @@ static void dump_task(FAR struct tcb_s *tcb, FAR void *arg)
 #ifdef CONFIG_SMP
          "  %4d"
 #endif
+         "   %p"
          "   %7zu"
 #ifdef CONFIG_STACK_COLORATION
          "   %7zu   %3zu.%1zu%%%c"
@@ -340,6 +334,7 @@ static void dump_task(FAR struct tcb_s *tcb, FAR void *arg)
 #ifdef CONFIG_SMP
          , tcb->cpu
 #endif
+         , tcb->stack_base_ptr
          , tcb->adj_stack_size
 #ifdef CONFIG_STACK_COLORATION
          , up_check_tcbstack(tcb)
@@ -390,11 +385,12 @@ static void show_tasks(void)
 
   /* Dump interesting properties of each task in the crash environment */
 
-  _alert("   PID    PRI"
+  _alert("   PID   PRI"
 #ifdef CONFIG_SMP
          "   CPU"
 #endif
-         "     STACK"
+         "    STACKBASE"
+         " STACKSIZE"
 #ifdef CONFIG_STACK_COLORATION
          "      USED   FILLED "
 #endif
@@ -404,10 +400,11 @@ static void show_tasks(void)
          "   COMMAND\n");
 
 #if CONFIG_ARCH_INTERRUPTSTACK > 0
-  _alert("  ----   ----"
+  _alert("  ----   ---"
 #  ifdef CONFIG_SMP
          "  ----"
 #  endif
+         "   %p"
          "   %7u"
 #  ifdef CONFIG_STACK_COLORATION
          "   %7zu   %3zu.%1zu%%%c"
@@ -416,6 +413,7 @@ static void show_tasks(void)
          "     ----"
 #  endif
          "   irq\n"
+         , (FAR void *)up_get_intstackbase()
          , CONFIG_ARCH_INTERRUPTSTACK
 #  ifdef CONFIG_STACK_COLORATION
          , stack_used
@@ -436,9 +434,10 @@ static void show_tasks(void)
  * Public Functions
  ****************************************************************************/
 
-void _assert(FAR const char *filename, int linenum)
+void _assert(FAR const char *filename, int linenum, FAR const char *msg)
 {
   FAR struct tcb_s *rtcb = running_task();
+  struct utsname name;
   bool fatal = false;
 
   /* Flush any buffered SYSLOG data (from prior to the assertion) */
@@ -455,25 +454,31 @@ void _assert(FAR const char *filename, int linenum)
   fatal = true;
 #endif
 
-  panic_notifier_call_chain(fatal ? PANIC_KERNEL : PANIC_TASK, NULL);
+  panic_notifier_call_chain(fatal ? PANIC_KERNEL : PANIC_TASK, rtcb);
 
+  uname(&name);
+  _alert("Current Version: %s %s %s %s %s\n",
+         name.sysname, name.nodename,
+         name.release, name.version, name.machine);
+
+  _alert("Assertion failed %s: at file: %s:%d task"
 #ifdef CONFIG_SMP
-#  if CONFIG_TASK_NAME_SIZE > 0
-  _alert("Assertion failed CPU%d at file: %s:%d task: %s %p\n",
-         up_cpu_index(), filename, linenum, rtcb->name, rtcb->entry.main);
-#  else
-  _alert("Assertion failed CPU%d at file: %s:%d task: %p\n",
-         up_cpu_index(), filename, linenum, rtcb->entry.main);
-#  endif
-#else
-#  if CONFIG_TASK_NAME_SIZE > 0
-  _alert("Assertion failed at file: %s:%d task: %s %p\n",
-         filename, linenum, rtcb->name, rtcb->entry.main);
-#  else
-  _alert("Assertion failed at file: %s:%d task: %p\n",
-         filename, linenum, rtcb->entry.main);
-#  endif
+         "(CPU%d)"
 #endif
+         ": "
+#if CONFIG_TASK_NAME_SIZE > 0
+         "%s "
+#endif
+         "%p\n",
+         msg ? msg : "",
+         filename ? filename : "", linenum,
+#ifdef CONFIG_SMP
+         up_cpu_index(),
+#endif
+#if CONFIG_TASK_NAME_SIZE > 0
+         rtcb->name,
+#endif
+         rtcb->entry.main);
 
   /* Show back trace */
 
@@ -512,12 +517,13 @@ void _assert(FAR const char *filename, int linenum)
 #endif
 
 #ifdef CONFIG_BOARD_CRASHDUMP
-      board_crashdump(up_getsp(), rtcb, filename, linenum);
+      board_crashdump(up_getsp(), rtcb, filename, linenum, msg);
 #endif
 
       /* Flush any buffered SYSLOG data */
 
       syslog_flush();
+      panic_notifier_call_chain(PANIC_KERNEL_FINAL, rtcb);
 
       reboot_notifier_call_chain(SYS_HALT, NULL);
 

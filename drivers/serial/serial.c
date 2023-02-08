@@ -790,6 +790,11 @@ static ssize_t uart_read(FAR struct file *filep,
            * IUCLC - Not Posix
            * IXON/OXOFF - no xon/xoff flow control.
            */
+#else
+          if (dev->isconsole && ch == '\r')
+            {
+              ch = '\n';
+            }
 #endif
 
           /* Store the received character */
@@ -1390,7 +1395,8 @@ static int uart_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
         {
           case TCGETS:
             {
-              FAR struct termios *termiosp = (FAR struct termios *)arg;
+              FAR struct termios *termiosp = (FAR struct termios *)
+                                                (uintptr_t)arg;
 
               if (!termiosp)
                 {
@@ -1410,7 +1416,8 @@ static int uart_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
           case TCSETS:
             {
-              FAR struct termios *termiosp = (FAR struct termios *)arg;
+              FAR struct termios *termiosp = (FAR struct termios *)
+                                                (uintptr_t)arg;
 
               if (!termiosp)
                 {
@@ -1423,7 +1430,6 @@ static int uart_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
               dev->tc_iflag = termiosp->c_iflag;
               dev->tc_oflag = termiosp->c_oflag;
               dev->tc_lflag = termiosp->c_lflag;
-
               ret = 0;
             }
             break;
@@ -1604,21 +1610,20 @@ static void uart_launch_worker(void *arg)
   nxsched_foreach(uart_launch_foreach, &found);
   if (!found)
     {
-#ifdef CONFIG_TTY_LAUNCH_ENTRY
-      nxtask_create(CONFIG_TTY_LAUNCH_ENTRYNAME,
-                    CONFIG_TTY_LAUNCH_PRIORITY,
-                    NULL, CONFIG_TTY_LAUNCH_STACKSIZE,
-                    CONFIG_TTY_LAUNCH_ENTRYPOINT,
-                    argv, NULL);
-#else
       posix_spawnattr_t attr;
 
       posix_spawnattr_init(&attr);
-
       attr.priority  = CONFIG_TTY_LAUNCH_PRIORITY;
       attr.stacksize = CONFIG_TTY_LAUNCH_STACKSIZE;
-      exec_spawn(CONFIG_TTY_LAUNCH_FILEPATH, argv, NULL, 0, &attr);
+
+#ifdef CONFIG_TTY_LAUNCH_ENTRY
+      task_spawn(CONFIG_TTY_LAUNCH_ENTRYNAME,
+                 CONFIG_TTY_LAUNCH_ENTRYPOINT,
+                 NULL, &attr, argv, NULL);
+#else
+      exec_spawn(CONFIG_TTY_LAUNCH_FILEPATH, argv, NULL, NULL, 0, &attr);
 #endif
+      posix_spawnattr_destroy(&attr);
     }
 }
 
@@ -1660,6 +1665,10 @@ int uart_register(FAR const char *path, FAR uart_dev_t *dev)
       /* Enable \n -> \r\n translation for the console */
 
       dev->tc_oflag = OPOST | ONLCR;
+
+      /* Convert CR to LF by default for console */
+
+      dev->tc_iflag |= ICRNL;
     }
 #endif
 

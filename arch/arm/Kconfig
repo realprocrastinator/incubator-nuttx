@@ -1058,6 +1058,12 @@ config ARM_NEON
 	default y
 	depends on ARM_HAVE_NEON && ARM_DPFPU32
 
+config ARM_DSP
+	bool "Advanced DSP Extension"
+	default y
+	---help---
+		Enables DSP Extension
+
 config ARM_HAVE_MPU_UNIFIED
 	bool
 	default n
@@ -1239,8 +1245,7 @@ if SCHED_BACKTRACE
 
 choice
 	prompt "Choose ARM unwinder"
-	default UNWINDER_STACK_POINTER if ARM_THUMB
-	default UNWINDER_FRAME_POINTER if !ARM_THUMB
+	default UNWINDER_ARM
 	---help---
 		This determines which method will be used for unwinding nuttx stack
 		traces for debug.

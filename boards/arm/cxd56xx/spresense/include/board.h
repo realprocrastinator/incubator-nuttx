@@ -41,6 +41,7 @@
 #include "cxd56_i2cdev.h"
 #include "cxd56_spidev.h"
 #include "cxd56_sdcard.h"
+#include "cxd56_automount.h"
 #include "cxd56_wdt.h"
 #include "cxd56_gpioif.h"
 
@@ -265,10 +266,6 @@ enum board_power_device
  */
 
 #define BOARDIOC_USBDEV_SETNOTIFYSIG      (BOARDIOC_USER+0x0001)
-
-/* Set callback function pointer for notify SDCard state change *************/
-
-#define BOARDIOC_SDCARD_SETNOTIFYCB       (BOARDIOC_USER+0x0002)
 
 /* Altair modem device pin definitions **************************************/
 

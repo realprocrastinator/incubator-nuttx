@@ -20,6 +20,10 @@
 
 export TOPDIR := ${shell echo $(CURDIR) | sed -e 's/ /\\ /g'}
 
+ifeq ($(V),)
+  MAKE := $(MAKE) -s --no-print-directory
+endif
+
 # Build any necessary tools needed early in the build.
 # incdir - Is needed immediately by all Make.defs file.
 
@@ -513,7 +517,7 @@ ifeq ($(CONFIG_BUILD_2PASS),y)
 	fi
 	$(Q) $(MAKE) -C $(CONFIG_PASS1_BUILDIR) LINKLIBS="$(LINKLIBS)" USERLIBS="$(USERLIBS)" "$(CONFIG_PASS1_TARGET)"
 endif
-	$(Q) $(MAKE) -C $(ARCH_SRC) EXTRA_OBJS="$(EXTRA_OBJS)" LINKLIBS="$(LINKLIBS)" EXTRAFLAGS="$(KDEFINE) $(EXTRAFLAGS)" $(BIN)
+	$(Q) $(MAKE) -C $(ARCH_SRC) EXTRA_OBJS="$(EXTRA_OBJS)" LINKLIBS="$(LINKLIBS)" APPDIR="$(APPDIR)" EXTRAFLAGS="$(KDEFINE) $(EXTRAFLAGS)" $(BIN)
 	$(Q) if [ -w /tftpboot ] ; then \
 		cp -f $(BIN) /tftpboot/$(BIN).${CONFIG_ARCH}; \
 	fi
@@ -664,7 +668,7 @@ savedefconfig: apps_preconfig
 # that the archiver is 'ar'
 
 export: $(NUTTXLIBS)
-	$(Q) MAKE=${MAKE} $(MKEXPORT) $(MKEXPORT_ARGS) -l "$(EXPORTLIBS)"
+	$(Q) MAKE="${MAKE}" $(MKEXPORT) $(MKEXPORT_ARGS) -l "$(EXPORTLIBS)"
 
 # General housekeeping targets:  dependencies, cleaning, etc.
 #

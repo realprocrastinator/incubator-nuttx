@@ -625,7 +625,7 @@ ssize_t usrsock_iovec_put(FAR struct iovec *iov, int iovcnt, size_t pos,
 }
 
 /****************************************************************************
- * Name: usrsock_request() - finish usrsock's request
+ * Name: usrsock_do_request() - finish usrsock's request
  ****************************************************************************/
 
 int usrsock_do_request(FAR struct usrsock_conn_s *conn,
@@ -641,7 +641,7 @@ int usrsock_do_request(FAR struct usrsock_conn_s *conn,
 
   /* Set outstanding request for daemon to handle. */
 
-  net_lockedwait_uninterruptible(&req->lock);
+  net_mutex_lock(&req->lock);
   if (++req->newxid == 0)
     {
       ++req->newxid;
@@ -657,13 +657,17 @@ int usrsock_do_request(FAR struct usrsock_conn_s *conn,
   req->ackxid = req_head->xid;
 
   ret = usrsock_request(iov, iovcnt);
-  if (ret == OK)
+  if (ret >= 0)
     {
       /* Wait ack for request. */
 
       ++req->nbusy; /* net_lock held. */
-      net_lockedwait_uninterruptible(&req->acksem);
+      net_sem_wait_uninterruptible(&req->acksem);
       --req->nbusy; /* net_lock held. */
+    }
+  else
+    {
+      nerr("error: usrsock request failed with %d\n", ret);
     }
 
   /* Free request line for next command. */
@@ -700,12 +704,12 @@ void usrsock_abort(void)
        * requests.
        */
 
-      ret = net_timedwait(&req->lock, 10);
+      ret = net_mutex_timedlock(&req->lock, 10);
       if (ret < 0)
         {
           if (ret != -ETIMEDOUT && ret != -EINTR)
             {
-              ninfo("net_timedwait errno: %d\n", ret);
+              ninfo("net_sem_timedwait errno: %d\n", ret);
               DEBUGASSERT(false);
             }
         }
