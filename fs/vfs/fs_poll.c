@@ -374,7 +374,7 @@ int file_poll(FAR struct file *filep, FAR struct pollfd *fds, bool setup)
 int poll(FAR struct pollfd *fds, nfds_t nfds, int timeout)
 {
   FAR struct pollfd *kfds;
-  sem_t sem;
+  sem_t *sem;
   int count = 0;
   int ret2;
   int ret;
@@ -384,6 +384,14 @@ int poll(FAR struct pollfd *fds, nfds_t nfds, int timeout)
   /* poll() is a cancellation point */
 
   enter_cancellation_point();
+
+  sem = kmm_malloc(sizeof(sem_t));
+
+  if (!sem)
+    {
+      ret = ENOMEM;
+      goto out_with_cancelpt;
+    }
 
 #ifdef CONFIG_BUILD_KERNEL
   /* Allocate kernel memory for the fds */
@@ -406,8 +414,8 @@ int poll(FAR struct pollfd *fds, nfds_t nfds, int timeout)
   kfds = fds;
 #endif
 
-  nxsem_init(&sem, 0, 0);
-  ret = poll_setup(kfds, nfds, &sem);
+  nxsem_init(sem, 0, 0);
+  ret = poll_setup(kfds, nfds, sem);
   if (ret >= 0)
     {
       if (timeout == 0)
@@ -447,7 +455,7 @@ int poll(FAR struct pollfd *fds, nfds_t nfds, int timeout)
            * will return immediately.
            */
 
-          ret = nxsem_tickwait(&sem, ticks);
+          ret = nxsem_tickwait(sem, ticks);
           if (ret < 0)
             {
               if (ret == -ETIMEDOUT)
@@ -464,7 +472,7 @@ int poll(FAR struct pollfd *fds, nfds_t nfds, int timeout)
         {
           /* Wait for the poll event or signal with no timeout */
 
-          ret = nxsem_wait(&sem);
+          ret = nxsem_wait(sem);
         }
 
       /* Teardown the poll operation and get the count of events.  Zero will
@@ -480,7 +488,8 @@ int poll(FAR struct pollfd *fds, nfds_t nfds, int timeout)
         }
     }
 
-  nxsem_destroy(&sem);
+  nxsem_destroy(sem);
+  kmm_free(sem);
 
 #ifdef CONFIG_BUILD_KERNEL
   /* Copy the events back to user */
@@ -498,8 +507,8 @@ int poll(FAR struct pollfd *fds, nfds_t nfds, int timeout)
 
   kmm_free(kfds);
 
-out_with_cancelpt:
 #endif
+out_with_cancelpt:
 
   leave_cancellation_point();
 
