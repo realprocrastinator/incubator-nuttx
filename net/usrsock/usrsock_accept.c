@@ -161,7 +161,7 @@ static int do_accept_request(FAR struct usrsock_conn_s *conn,
   bufs[0].iov_base = &req;
   bufs[0].iov_len = sizeof(req);
 
-  return usrsock_do_request(conn, bufs, ARRAY_SIZE(bufs));
+  return usrsock_do_request(conn, bufs, nitems(bufs));
 }
 
 /****************************************************************************
@@ -213,7 +213,8 @@ static int do_accept_request(FAR struct usrsock_conn_s *conn,
  ****************************************************************************/
 
 int usrsock_accept(FAR struct socket *psock, FAR struct sockaddr *addr,
-                   FAR socklen_t *addrlen, FAR struct socket *newsock)
+                   FAR socklen_t *addrlen, FAR struct socket *newsock,
+                   int flags)
 {
   FAR struct usrsock_conn_s *conn = psock->s_conn;
   struct usrsock_data_reqstate_s state =
@@ -385,7 +386,7 @@ int usrsock_accept(FAR struct socket *psock, FAR struct sockaddr *addr,
       inbufs[1].iov_base = &newconn->usockid;
       inbufs[1].iov_len = sizeof(newconn->usockid);
 
-      usrsock_setup_datain(conn, inbufs, ARRAY_SIZE(inbufs));
+      usrsock_setup_datain(conn, inbufs, nitems(inbufs));
 
       /* We might start getting events for this socket right after
        * returning to daemon, so setup 'newconn' already here.

@@ -77,10 +77,12 @@ static inline void nxtask_exitstatus(FAR struct task_group_s *group,
           child->ch_status = status;
         }
     }
+
+  group->tg_exitcode = status;
 }
 #else
 
-#  define nxtask_exitstatus(group,status)
+#  define nxtask_exitstatus(group,status) (group)->tg_exitcode = (status);
 
 #endif /* CONFIG_SCHED_CHILD_STATUS */
 
@@ -188,7 +190,7 @@ static inline void nxtask_sigchild(pid_t ppid, FAR struct tcb_s *ctcb,
       info.si_errno           = OK;
       info.si_value.sival_ptr = NULL;
       info.si_pid             = chgrp->tg_pid;
-      info.si_status          = status;
+      info.si_status          = pgrp->tg_exitcode;
 
       /* Send the signal to one thread in the group */
 
@@ -459,7 +461,7 @@ void nxtask_exithook(FAR struct tcb_s *tcb, int status)
   nxsig_cleanup(tcb); /* Deallocate Signal lists */
 
 #ifdef CONFIG_SCHED_DUMP_LEAK
-  if ((tcb->cmn.flags & TCB_FLAG_TTYPE_MASK) == TCB_FLAG_TTYPE_KERNEL)
+  if ((tcb->flags & TCB_FLAG_TTYPE_MASK) == TCB_FLAG_TTYPE_KERNEL)
     {
       kmm_memdump(tcb->pid);
     }

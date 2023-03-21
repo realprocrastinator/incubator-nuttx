@@ -166,10 +166,6 @@ static int sim_loop_task(int argc, char **argv)
 
       sched_lock();
 
-      /* Handle UART data availability */
-
-      sim_uartloop();
-
 #if defined(CONFIG_SIM_TOUCHSCREEN) || defined(CONFIG_SIM_AJOYSTICK) || \
     defined(CONFIG_SIM_BUTTONS)
       /* Drive the X11 event loop */
@@ -207,6 +203,10 @@ static int sim_loop_task(int argc, char **argv)
       sim_video_loop();
 #endif
 
+#ifdef CONFIG_SIM_USB_DEV
+      sim_usbdev_loop();
+#endif
+
 #ifdef CONFIG_MOTOR_FOC_DUMMY
       /* Update simulated FOC device */
 
@@ -216,9 +216,13 @@ static int sim_loop_task(int argc, char **argv)
       sched_unlock();
       up_irq_restore(flags);
 
+#ifdef CONFIG_SIM_USB_HOST
+      sim_usbhost_loop();
+#endif
+
       /* Sleep minimal time, let the idle run */
 
-      usleep(USEC_PER_TICK);
+      usleep(CONFIG_SIM_LOOPTASK_INTERVAL);
     }
 
   return 0;
@@ -291,6 +295,14 @@ void up_initialize(void)
 
   audio_register("pcm1p", sim_audio_initialize(true, true));
   audio_register("pcm1c", sim_audio_initialize(false, true));
+#endif
+
+#ifdef CONFIG_SIM_USB_DEV
+  sim_usbdev_initialize();
+#endif
+
+#ifdef CONFIG_SIM_USB_HOST
+  sim_usbhost_initialize();
 #endif
 
   kthread_create("loop_task", SCHED_PRIORITY_MAX,
